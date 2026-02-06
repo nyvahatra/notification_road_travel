@@ -28,8 +28,8 @@ cron.schedule(
 
 async function envoiNotification() {
     // today ISO date (YYYY-MM-DD)
-    // const today = DateTime.now().toISODate();
-    const today = '2026-02-14';
+    const today = DateTime.now().toISODate();
+    // const today = '2026-02-14';
 
     const query = `
     select *,
