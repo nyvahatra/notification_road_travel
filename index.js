@@ -29,7 +29,7 @@ cron.schedule(
 async function envoiNotification() {
     // today ISO date (YYYY-MM-DD)
     const today = DateTime.now().toISODate();
-    // const today = '2026-02-14';
+    // const today = '2026-02-21';
 
     const query = `
     select *,
@@ -87,7 +87,7 @@ async function envoiNotification() {
                 continue;
             }
 
-            const courriel_travailleur = data_travailleur[0].user;
+            const courriel_travailleur = data_travailleur[0].courriel_travailleur ?? data_travailleur[0].email_perso;
             if (!courriel_travailleur) {
                 console.log(`[notif] Email travailleur vide id_travailleur=${element.id_travailleur}`);
                 await updateNextNotifSafe(element, null);
