@@ -94,6 +94,10 @@ async function envoiNotification() {
                 continue;
             }
 
+            const nom_travailleur = data_travailleur[0].nom_user || '';
+            const prenom_travailleur = data_travailleur[0].prenom_user || '';
+            const nom_complet = `${prenom_travailleur} ${nom_travailleur}`.trim();
+
             // --- Responsables en CC ---
             if (is_responsable) {
                 const data_responsable = data_travailleur[0].id_user_responsable;
@@ -124,6 +128,8 @@ async function envoiNotification() {
             // --- HTML mail ---
             const html = `
         <div style="font-family: Arial, sans-serif; font-size: 14px; color: #333; line-height: 1.6;">
+          <p style="margin-bottom: 20px;"><strong>Bonjour ${nom_complet},</strong></p>
+          
           <!-- FRENCH VERSION -->
           <h2 style="color: #1a73e8; margin-bottom: 15px;">Avertissement pour déplacements routiers</h2>
           
