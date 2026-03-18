@@ -128,7 +128,8 @@ async function envoiNotification() {
             // --- HTML mail ---
             const html = `
         <div style="font-family: Arial, sans-serif; font-size: 14px; color: #333; line-height: 1.6;">
-          <p style="margin-bottom: 20px;"><strong>Bonjour ${nom_complet},</strong></p>
+          <p><strong>Bonjour ${nom_complet},</strong></p>
+          <p style="margin-bottom: 20px;"> <strong>Demande n°${element.id_travel}</strong> </p>
           
           <!-- FRENCH VERSION -->
           <h2 style="color: #1a73e8; margin-bottom: 15px;">Avertissement pour déplacements routiers</h2>
@@ -198,7 +199,7 @@ async function envoiNotification() {
                 from: '"Galaxy Hub Construction" <notifications@constructiongalaxyhub.com>',
                 to: courriel_travailleur,
                 cc: courriel_cc.length ? courriel_cc : undefined,
-                subject: `Consigne de déplacement routier / Road Travel Instruction`,
+                subject: `Req #${element.id_travel} - Consigne de déplacement routier / Road Travel Instruction`,
                 html,
             };
 
