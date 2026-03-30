@@ -3,6 +3,7 @@ const pool = require('./config');
 const cron = require('node-cron');
 const { smtpTrans } = require('./mail_utils');
 const { DateTime } = require('luxon');
+const { sendSMS } = require('./sms_utils');
 
 /**
  * IMPORTANT :
@@ -25,7 +26,6 @@ cron.schedule(
 );
 
 // envoiNotification();
-
 async function envoiNotification() {
     // today ISO date (YYYY-MM-DD)
     const today = DateTime.now().toISODate();
@@ -94,6 +94,12 @@ async function envoiNotification() {
                 continue;
             }
 
+            // TELEPHONE 
+            const query_telephone = `select telephone from adresse_travailleur_view where id_travailleur = $1`;
+            const resTel = await pool.query(query_telephone, [element.id_travailleur]);
+            const numeroFinal = resTel.rows.length > 0 ? resTel.rows[0].telephone : null;
+
+            // INFO TRAVAILLEUR 
             const nom_travailleur = data_travailleur[0].nom_user || '';
             const prenom_travailleur = data_travailleur[0].prenom_user || '';
             const nom_complet = `${prenom_travailleur} ${nom_travailleur}`.trim();
@@ -212,6 +218,19 @@ async function envoiNotification() {
             // Envoi mail (attendu)
             await smtpTrans.sendMail(mailData);
             console.log("[notif] Notification envoyée");
+
+            // ENVOI SMS 
+            if (numeroFinal) {
+                // CONTENU SMS 
+                const smsFR = `Liaison Galaxy Req #${element.id_travel}\nBonjour ${nom_complet},\nAppel obligatoire au 819-345-9954:\n1-Entrée route Billy Diamond/Nord\n2-Arrivée Relais 381 ou site\n3-Départ du site\nDonner: Noms, lieu et n° de voyage.`;
+                const smsEN = `Galaxy Link Req #${element.id_travel}\nHello ${nom_complet},\nMandatory call 819-345-9954:\n1-Entering Billy Diamond/North road\n2-Arrival at Stop 381 or site\n3-Leaving site\nProvide: Names, location & trip #.`;
+
+                const smsContent = (data_travailleur[0].langue == 1) ? smsFR : smsEN;
+                console.log(`[notif] Tentative envoi SMS au ${numeroFinal}`);
+                await sendSMS(numeroFinal, smsContent);
+            } else {
+                console.log(`[notif] SMS ignoré : pas de numéro pour id_travailleur=${element.id_travailleur}`);
+            }
 
             // --- Calcul prochaine notification ---
             const date_debut = element.date_debut;
