@@ -11,6 +11,8 @@ const { sendSMS } = require('./sms_utils');
  * - Si tu veux être sûr du timezone (ex: Quebec), mets timezone: 'America/Toronto'
  *   Si tu veux Madagascar: 'Indian/Antananarivo'
  */
+
+// LE VRAI CRON 
 cron.schedule(
     '0 8 * * *',
     async () => {
@@ -25,25 +27,32 @@ cron.schedule(
     }
 );
 
+// CRON DE TEST 
+// cron.schedule(
+//     '* * * * *',
+//     async () => {
+//         const startTime = new Date().toISOString();
+//         console.log(`[CRON START] Lancement de envoiNotification à : ${startTime}`);
+        
+//         try {
+//             await envoiNotification();
+//             const endTime = new Date().toISOString();
+//             console.log(`[CRON END] Fin de envoiNotification à : ${endTime}`);
+//         } catch (err) {
+//             console.error(`[CRON ERROR] Erreur à ${new Date().toISOString()}:`, err);
+//         }
+//     },
+//     {
+//         timezone: process.env.CRON_TZ || 'America/Toronto',
+//     }
+// );
+
 // envoiNotification();
 async function envoiNotification() {
+    
     // today ISO date (YYYY-MM-DD)
     const today = DateTime.now().toISODate();
     // const today = '2026-02-21';
-
-    const query = `
-    select *,
-           date_debut::text as date_debut,
-           date_fin::text as date_fin
-    from public.planning_notification
-    where date_notif = $1
-  `;
-    const { rows: data } = await pool.query(query, [today]);
-
-    if (!data || data.length === 0) {
-        console.log(`[notif] Aucune notification à envoyer pour ${today}`);
-        return;
-    }
 
     const query_get_param = `
     select *
@@ -65,6 +74,17 @@ async function envoiNotification() {
         return;
     }
 
+    const query = `
+    select *,
+           date_debut::text as date_debut,
+           date_fin::text as date_fin
+    from public.planning_notification
+    where date_notif = $1
+  `;
+    const { rows: data } = await pool.query(query, [today]);
+
+    if (data && data.length > 0) {
+    
     // Traitement séquentiel (safe DB + logs + updates)
     for (const element of data) {
         try {
@@ -228,9 +248,27 @@ async function envoiNotification() {
                 const smsContent = (data_travailleur[0].langue == 1) ? smsFR : smsEN;
                 console.log(`[notif] Tentative envoi SMS au ${numeroFinal}`);
                 await sendSMS(numeroFinal, smsContent);
+                
             } else {
                 console.log(`[notif] SMS ignoré : pas de numéro pour id_travailleur=${element.id_travailleur}`);
             }
+
+            // INSERT DANS L'HISTORIQUE DE NOTIFICATION 
+            let query_insert_historique = `
+            insert into public.historique_notification (
+                id_travel,
+                id_travailleur,
+                email,
+                numero_tel,
+                description
+            ) values ($1, $2, $3, $4, $5)`;
+            await pool.query(query_insert_historique, [
+                element.id_travel,
+                element.id_travailleur,
+                courriel_travailleur,
+                numeroFinal,
+                `Req #${element.id_travel} - Consigne de déplacement routier / Road Travel Instruction`
+            ]);
 
             // --- Calcul prochaine notification ---
             const date_debut = element.date_debut;
@@ -256,11 +294,180 @@ async function envoiNotification() {
                 id_travailleur: element?.id_travailleur,
                 err: err?.message || err,
             });
-
-            // En cas d'erreur, on évite de bloquer tout le lot.
-            // Tu peux décider de ne pas update dans ce cas si tu veux.
         }
     }
+    }
+    console.log("[notif] Fin de la première boucle, passage à notification_route");
+
+        // ENVOIE NOTIF POUR VOYAGE SANS CHAMBRE 
+    const query_route = `
+        select *,
+               date_voyage::text as date_voyage
+        from public.notification_route
+        where date_notif = $1
+    `;
+    const { rows: data_route } = await pool.query(query_route, [today]);
+    if (data_route && data_route.length > 0) {
+        console.log(`[notif_route] ${data_route.length} notifications de route à envoyer.`);
+        for (const element of data_route) {
+            try {
+                let courriel_cc = [];
+                try {
+                    const autres = JSON.parse(data_param[0].autre_courriel || "[]");
+                    courriel_cc = (autres || []).map(a => a.courriel).filter(Boolean);
+                } catch (e) {
+                    courriel_cc = [];
+                }
+
+                const query_trav = `select * from public."fichier_travailleur" where id_travailleur = $1`;
+                const { rows: trav_info } = await pool.query(query_trav, [element.id_travailleur]);
+
+                if (!trav_info || trav_info.length === 0) continue;
+
+                const t = trav_info[0];
+                const email_to = t.courriel_travailleur ?? t.email_perso;
+                const nom_complet = `${t.prenom_user} ${t.nom_user}`.trim();
+
+                if (is_responsable) {
+                    const data_responsable = t.id_user_responsable;
+
+                    if (data_responsable != null && data_responsable !== "") {
+                        let responsables = [];
+                        try {
+                            responsables = JSON.parse(data_responsable);
+                        } catch (e) {
+                            responsables = [];
+                        }
+
+                        const promises = responsables.map(async (id_user) => {
+                            const query_courriel_manager = `select "user" from public."user" where id_user = $1`;
+                            const { rows: data_courriel } = await pool.query(query_courriel_manager, [id_user]);
+                            const courriel_manager = data_courriel[0]?.user;
+                            return courriel_manager || null;
+                        });
+
+                        const managersEmails = (await Promise.all(promises)).filter(Boolean);
+                        courriel_cc.push(...managersEmails);
+                    }
+                }
+
+                // Récupération téléphone
+                const resT = await pool.query(`select telephone from adresse_travailleur_view where id_travailleur = $1`, [element.id_travailleur]);
+                const tel = resT.rows[0]?.telephone;
+
+                courriel_cc = uniqEmails(courriel_cc).filter(e => e !== email_to);
+
+                const html = `
+                        <div style="font-family: Arial, sans-serif; font-size: 14px; color: #333; line-height: 1.6;">
+                        <p><strong>Bonjour ${nom_complet},</strong></p>
+                        <p style="margin-bottom: 20px;"> <strong>Demande n°${element.id_travel}</strong> </p>
+                        
+                        <!-- FRENCH VERSION -->
+                        <h2 style="color: #1a73e8; margin-bottom: 15px;">Avertissement pour déplacements routiers</h2>
+                        
+                        <h3 style="color: #1a73e8; font-size: 13px; margin-top: 15px; margin-bottom: 10px;">Déplacements vers le site Galaxy</h3>
+                        <p>
+                            Appelez au
+                            <a href="tel:8193459954" style="color:#1a73e8; text-decoration: none;"><strong>819-345-9954</strong></a>
+                        </p>
+                        <ul style="margin-top: 10px; margin-bottom: 10px;">
+                            <li>En entrant sur la route Billy Diamond à Matagami ou sur la Route du Nord à Chibougamau ou au moment de quitter une communauté sur le territoire Cri de la Baie-James.</li>
+                            <li>En arrivant au Relais Routier 381 ou au site de la mine Galaxy</li>
+                        </ul>
+
+                        <h3 style="color: #1a73e8; font-size: 13px; margin-top: 15px; margin-bottom: 10px;">Déplacement hors du site Galaxy</h3>
+                        <p>
+                            Appelez au
+                            <a href="tel:8193459954" style="color:#1a73e8; text-decoration: none;"><strong>819-345-9954</strong></a>
+                        </p>
+                        <ul style="margin-top: 10px; margin-bottom: 10px;">
+                            <li>Avant de quitter le site de la mine ou le Relais Routier 381.</li>
+                            <li>Au moment de quitter la route Billy Diamond à Matagami ou en quittant la Route du Nord à Chibougamau ou en arrivant dans une communauté sur le territoire Cri de la Baie-James.</li>
+                        </ul>
+
+                        <p style="margin-top: 15px;"><strong>Mentionnez à l'agent de sureté les informations suivantes :</strong></p>
+                        <ul style="margin-top: 10px; margin-bottom: 15px;">
+                            <li>Nom complet de tous les occupants du véhicule.</li>
+                            <li>Localisation actuelle</li>
+                            <li>Le numéro de voyage fournit par les responsables Rio Tinto</li>
+                        </ul>
+
+                        <hr style="margin: 30px 0; border: none; border-top: 2px solid #ccc;" />
+
+                        <!-- ENGLISH VERSION -->
+                        <h2 style="color: #1a73e8; margin-top: 20px; margin-bottom: 15px;">Warning for Road Travel</h2>
+                        
+                        <h3 style="color: #1a73e8; font-size: 13px; margin-top: 15px; margin-bottom: 10px;">Trips to the Galaxy Site</h3>
+                        <p>
+                            Call
+                            <a href="tel:8193459954" style="color:#1a73e8; text-decoration: none;"><strong>819-345-9954</strong></a>
+                        </p>
+                        <ul style="margin-top: 10px; margin-bottom: 10px;">
+                            <li>When entering the Billy Diamond Road in Matagami or the Route du Nord in Chibougamau or when leaving a community in the Cree territory of James Bay.</li>
+                            <li>Arriving at Truck Stop 381 or the Galaxy Mine site.</li>
+                        </ul>
+
+                        <h3 style="color: #1a73e8; font-size: 13px; margin-top: 15px; margin-bottom: 10px;">Moving Out of the Galaxy Site</h3>
+                        <p>
+                            Call
+                            <a href="tel:8193459954" style="color:#1a73e8; text-decoration: none;"><strong>819-345-9954</strong></a>
+                        </p>
+                        <ul style="margin-top: 10px; margin-bottom: 10px;">
+                            <li>Before leaving the mine site or Truck Stop 381.</li>
+                            <li>When leaving Billy Diamond Road in Matagami or when leaving the Route du Nord in Chibougamau or arriving in a community on James Bay Cree territory.</li>
+                        </ul>
+
+                        <p style="margin-top: 15px;"><strong>Tell the security officer the following information:</strong></p>
+                        <ul style="margin-top: 10px; margin-bottom: 15px;">
+                            <li>Full names of all occupants of the vehicle.</li>
+                            <li>Current location.</li>
+                            <li>The trip number provided by Rio Tinto officials.</li>
+                        </ul>
+                        </div>
+                    `;
+
+                const mailDataRoute = {
+                    from: '"Galaxy Hub Construction" <notifications@constructiongalaxyhub.com>',
+                    to: email_to,
+                    cc: courriel_cc.length ? courriel_cc : undefined,
+                    subject: `Req #${element.id_travel} - Consigne de déplacement routier / Road Travel Instruction`,
+                    html: html,
+                };
+
+                await smtpTrans.sendMail(mailDataRoute);
+                console.log(`[notif_route] Mail envoyé à ${email_to}`);
+
+                if (tel) {
+                    const smsFR = `Liaison Galaxy Req #${element.id_travel}\nBonjour ${nom_complet},\nAppel obligatoire au 819-345-9954:\n1-Entrée route Billy Diamond/Nord\n2-Arrivée Relais 381 ou site\n3-Départ du site\nDonner: Noms, lieu et n° de voyage.`;
+                    const smsEN = `Galaxy Link Req #${element.id_travel}\nHello ${nom_complet},\nMandatory call 819-345-9954:\n1-Entering Billy Diamond/North road\n2-Arrival at Stop 381 or site\n3-Leaving site\nProvide: Names, location & trip #.`;
+                        
+                    const content = (t.langue == 1) ? smsFR : smsEN;
+                    await sendSMS(tel, content);
+                    console.log(`[notif_route] SMS envoyé au ${tel}`);
+                }
+
+            // INSERT DANS L'HISTORIQUE DE NOTIFICATION 
+            let query_insert_historique = `
+            insert into public.historique_notification (
+                id_travel,
+                id_travailleur,
+                email,
+                numero_tel,
+                description
+            ) values ($1, $2, $3, $4, $5)`;
+            await pool.query(query_insert_historique, [
+                element.id_travel,
+                element.id_travailleur,
+                email_to,
+                tel,
+                `Req #${element.id_travel} - Consigne de déplacement routier / Road Travel Instruction`
+            ]);
+            } catch (err_route) {
+                console.error("[notif_route] Erreur element:", err_route.message);
+            }
+        }
+    }
+
 }
 
 async function updateNextNotifSafe(element, nextDate) {
@@ -339,7 +546,6 @@ function getNextNotification({ date_debut, date_fin, rotation, jour_arrive, toda
             if (arrivalDate > end) break;
         }
         if (arrivalDate > end) break;
-
         // 2) departDate = dernier jour ON
         const departDate = arrivalDate.plus({ days: onDays - 1 });
         const departSafe = departDate <= end ? departDate : end;
