@@ -303,7 +303,8 @@ async function envoiNotification() {
     const query_route = `
         SELECT nr.*,
             nr.date_voyage::text AS date_voyage,
-            pv.id_voyage
+            pv.id_voyage,
+            pv.code_voyage
         FROM public.notification_route nr
         JOIN plan_voyagement pv ON pv.id_travel = nr.id_travel 
         WHERE date_notif = $1
@@ -363,7 +364,7 @@ async function envoiNotification() {
                 const html = `
                         <div style="font-family: Arial, sans-serif; font-size: 14px; color: #333; line-height: 1.6;">
                         <p><strong>Bonjour ${nom_complet},</strong></p>
-                        <p style="margin-bottom: 20px;"> <strong>Demande de voyage n°${element.id_voyage}</strong> </p>
+                        <p style="margin-bottom: 20px;"> <strong>Demande n°${element.code_voyage}</strong> </p>
                         
                         <!-- FRENCH VERSION -->
                         <h2 style="color: #1a73e8; margin-bottom: 15px;">Avertissement pour déplacements routiers</h2>
@@ -433,7 +434,7 @@ async function envoiNotification() {
                     from: '"Galaxy Hub Construction" <notifications@constructiongalaxyhub.com>',
                     to: email_to,
                     cc: courriel_cc.length ? courriel_cc : undefined,
-                    subject: `Trip ID #${element.id_voyage} - Consigne de déplacement routier / Road Travel Instruction`,
+                    subject: `Demande #${element.code_voyage} - Consigne de déplacement routier / Road Travel Instruction`,
                     html: html,
                 };
 
@@ -441,8 +442,8 @@ async function envoiNotification() {
                 console.log(`[notif_route] Mail envoyé à ${email_to}`);
 
                 if (tel) {
-                    const smsFR = `Liaison Galaxy - N° de voyage #${element.id_voyage}\nBonjour ${nom_complet},\nAppel obligatoire au 819-345-9954:\n1-Entrée route Billy Diamond/Nord\n2-Arrivée Relais 381 ou site\n3-Départ du site\nDonner: Noms, lieu et n° de voyage.`;
-                    const smsEN = `Galaxy Link - Trip ID #${element.id_voyage}\nHello ${nom_complet},\nMandatory call 819-345-9954:\n1-Entering Billy Diamond/North road\n2-Arrival at Stop 381 or site\n3-Leaving site\nProvide: Names, location & trip #.`;
+                    const smsFR = `Liaison Galaxy - Demande #${element.code_voyage}\nBonjour ${nom_complet},\nAppel obligatoire au 819-345-9954:\n1-Entrée route Billy Diamond/Nord\n2-Arrivée Relais 381 ou site\n3-Départ du site\nDonner: Noms, lieu et n° de voyage.`;
+                    const smsEN = `Galaxy Link - Trip ID #${element.code_voyage}\nHello ${nom_complet},\nMandatory call 819-345-9954:\n1-Entering Billy Diamond/North road\n2-Arrival at Stop 381 or site\n3-Leaving site\nProvide: Names, location & trip #.`;
                         
                     const content = (t.langue == 1) ? smsFR : smsEN;
                     await sendSMS(tel, content);
@@ -463,7 +464,7 @@ async function envoiNotification() {
                 element.id_travailleur,
                 email_to,
                 tel,
-                `N° de voyage #${element.id_voyage} - Consigne de déplacement routier / Road Travel Instruction`
+                `N° de voyage #${element.code_voyage} - Consigne de déplacement routier / Road Travel Instruction`
             ]);
             } catch (err_route) {
                 console.error("[notif_route] Erreur element:", err_route.message);
