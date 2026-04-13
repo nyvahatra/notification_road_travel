@@ -52,7 +52,7 @@ async function envoiNotification() {
     
     // today ISO date (YYYY-MM-DD)
     const today = DateTime.now().toISODate();
-    // const today = '2026-02-21';
+    // const today = '2026-04-27';
 
     const query_get_param = `
     select *
@@ -86,225 +86,228 @@ async function envoiNotification() {
     if (data && data.length > 0) {
     
     // Traitement séquentiel (safe DB + logs + updates)
-    for (const element of data) {
-        try {
-            // --- CC de base ---
-            let courriel_cc = [];
-            try {
-                const autres = JSON.parse(data_param[0].autre_courriel || "[]");
-                courriel_cc = (autres || []).map(a => a.courriel).filter(Boolean);
-            } catch (e) {
-                courriel_cc = [];
-            }
+    // for (const element of data) {
+    //     try {
+    //         // --- CC de base ---
+    //         let courriel_cc = [];
+    //         try {
+    //             const autres = JSON.parse(data_param[0].autre_courriel || "[]");
+    //             courriel_cc = (autres || []).map(a => a.courriel).filter(Boolean);
+    //         } catch (e) {
+    //             courriel_cc = [];
+    //         }
 
-            // --- Travailleur ---
-            const query_travailleur = `select * from public."fichier_travailleur" where id_travailleur = $1`;
-            const { rows: data_travailleur } = await pool.query(query_travailleur, [element.id_travailleur]);
+    //         // --- Travailleur ---
+    //         const query_travailleur = `select * from public."fichier_travailleur" where id_travailleur = $1`;
+    //         const { rows: data_travailleur } = await pool.query(query_travailleur, [element.id_travailleur]);
 
-            if (!data_travailleur || data_travailleur.length === 0) {
-                console.log(`[notif] Travailleur introuvable id_travailleur=${element.id_travailleur}`);
-                await updateNextNotifSafe(element, null);
-                continue;
-            }
+    //         if (!data_travailleur || data_travailleur.length === 0) {
+    //             console.log(`[notif] Travailleur introuvable id_travailleur=${element.id_travailleur}`);
+    //             await updateNextNotifSafe(element, null);
+    //             continue;
+    //         }
 
-            const courriel_travailleur = data_travailleur[0].courriel_travailleur ?? data_travailleur[0].email_perso;
-            if (!courriel_travailleur) {
-                console.log(`[notif] Email travailleur vide id_travailleur=${element.id_travailleur}`);
-                await updateNextNotifSafe(element, null);
-                continue;
-            }
+    //         const courriel_travailleur = data_travailleur[0].courriel_travailleur ?? data_travailleur[0].email_perso;
+    //         if (!courriel_travailleur) {
+    //             console.log(`[notif] Email travailleur vide id_travailleur=${element.id_travailleur}`);
+    //             await updateNextNotifSafe(element, null);
+    //             continue;
+    //         }
 
-            // TELEPHONE 
-            const query_telephone = `select telephone from adresse_travailleur_view where id_travailleur = $1`;
-            const resTel = await pool.query(query_telephone, [element.id_travailleur]);
-            const numeroFinal = resTel.rows.length > 0 ? resTel.rows[0].telephone : null;
+    //         // TELEPHONE 
+    //         const query_telephone = `select telephone from adresse_travailleur_view where id_travailleur = $1`;
+    //         const resTel = await pool.query(query_telephone, [element.id_travailleur]);
+    //         const numeroFinal = resTel.rows.length > 0 ? resTel.rows[0].telephone : null;
 
-            // INFO TRAVAILLEUR 
-            const nom_travailleur = data_travailleur[0].nom_user || '';
-            const prenom_travailleur = data_travailleur[0].prenom_user || '';
-            const nom_complet = `${prenom_travailleur} ${nom_travailleur}`.trim();
+    //         // INFO TRAVAILLEUR 
+    //         const nom_travailleur = data_travailleur[0].nom_user || '';
+    //         const prenom_travailleur = data_travailleur[0].prenom_user || '';
+    //         const nom_complet = `${prenom_travailleur} ${nom_travailleur}`.trim();
 
-            // --- Responsables en CC ---
-            if (is_responsable) {
-                const data_responsable = data_travailleur[0].id_user_responsable;
+    //         // --- Responsables en CC ---
+    //         if (is_responsable) {
+    //             const data_responsable = data_travailleur[0].id_user_responsable;
 
-                if (data_responsable != null && data_responsable !== "") {
-                    let responsables = [];
-                    try {
-                        responsables = JSON.parse(data_responsable);
-                    } catch (e) {
-                        responsables = [];
-                    }
+    //             if (data_responsable != null && data_responsable !== "") {
+    //                 let responsables = [];
+    //                 try {
+    //                     responsables = JSON.parse(data_responsable);
+    //                 } catch (e) {
+    //                     responsables = [];
+    //                 }
 
-                    const promises = responsables.map(async (id_user) => {
-                        const query_courriel_manager = `select "user" from public."user" where id_user = $1`;
-                        const { rows: data_courriel } = await pool.query(query_courriel_manager, [id_user]);
-                        const courriel_manager = data_courriel[0]?.user;
-                        return courriel_manager || null;
-                    });
+    //                 const promises = responsables.map(async (id_user) => {
+    //                     const query_courriel_manager = `select "user" from public."user" where id_user = $1`;
+    //                     const { rows: data_courriel } = await pool.query(query_courriel_manager, [id_user]);
+    //                     const courriel_manager = data_courriel[0]?.user;
+    //                     return courriel_manager || null;
+    //                 });
 
-                    const managersEmails = (await Promise.all(promises)).filter(Boolean);
-                    courriel_cc.push(...managersEmails);
-                }
-            }
+    //                 const managersEmails = (await Promise.all(promises)).filter(Boolean);
+    //                 courriel_cc.push(...managersEmails);
+    //             }
+    //         }
 
-            // Dédoublonnage CC + enlever le "to" si par hasard
-            courriel_cc = uniqEmails(courriel_cc).filter(e => e !== courriel_travailleur);
+    //         // Dédoublonnage CC + enlever le "to" si par hasard
+    //         courriel_cc = uniqEmails(courriel_cc).filter(e => e !== courriel_travailleur);
 
-            // --- HTML mail ---
-            const html = `
-        <div style="font-family: Arial, sans-serif; font-size: 14px; color: #333; line-height: 1.6;">
-          <p><strong>Bonjour ${nom_complet},</strong></p>
-          <p style="margin-bottom: 20px;"> <strong>Demande n°${element.id_travel}</strong> </p>
+    //         // --- HTML mail ---
+    //         const html = `
+    //     <div style="font-family: Arial, sans-serif; font-size: 14px; color: #333; line-height: 1.6;">
+    //       <p><strong>Bonjour ${nom_complet},</strong></p>
+    //       <p style="margin-bottom: 20px;"> <strong>Demande de voyage n°${element.id_travel}</strong> </p>
           
-          <!-- FRENCH VERSION -->
-          <h2 style="color: #1a73e8; margin-bottom: 15px;">Avertissement pour déplacements routiers</h2>
+    //       <!-- FRENCH VERSION -->
+    //       <h2 style="color: #1a73e8; margin-bottom: 15px;">Avertissement pour déplacements routiers</h2>
           
-          <h3 style="color: #1a73e8; font-size: 13px; margin-top: 15px; margin-bottom: 10px;">Déplacements vers le site Galaxy</h3>
-          <p>
-            Appelez au
-            <a href="tel:8193459954" style="color:#1a73e8; text-decoration: none;"><strong>819-345-9954</strong></a>
-          </p>
-          <ul style="margin-top: 10px; margin-bottom: 10px;">
-            <li>En entrant sur la route Billy Diamond à Matagami ou sur la Route du Nord à Chibougamau ou au moment de quitter une communauté sur le territoire Cri de la Baie-James.</li>
-            <li>En arrivant au Relais Routier 381 ou au site de la mine Galaxy</li>
-          </ul>
+    //       <h3 style="color: #1a73e8; font-size: 13px; margin-top: 15px; margin-bottom: 10px;">Déplacements vers le site Galaxy</h3>
+    //       <p>
+    //         Appelez au
+    //         <a href="tel:8193459954" style="color:#1a73e8; text-decoration: none;"><strong>819-345-9954</strong></a>
+    //       </p>
+    //       <ul style="margin-top: 10px; margin-bottom: 10px;">
+    //         <li>En entrant sur la route Billy Diamond à Matagami ou sur la Route du Nord à Chibougamau ou au moment de quitter une communauté sur le territoire Cri de la Baie-James.</li>
+    //         <li>En arrivant au Relais Routier 381 ou au site de la mine Galaxy</li>
+    //       </ul>
 
-          <h3 style="color: #1a73e8; font-size: 13px; margin-top: 15px; margin-bottom: 10px;">Déplacement hors du site Galaxy</h3>
-          <p>
-            Appelez au
-            <a href="tel:8193459954" style="color:#1a73e8; text-decoration: none;"><strong>819-345-9954</strong></a>
-          </p>
-          <ul style="margin-top: 10px; margin-bottom: 10px;">
-            <li>Avant de quitter le site de la mine ou le Relais Routier 381.</li>
-            <li>Au moment de quitter la route Billy Diamond à Matagami ou en quittant la Route du Nord à Chibougamau ou en arrivant dans une communauté sur le territoire Cri de la Baie-James.</li>
-          </ul>
+    //       <h3 style="color: #1a73e8; font-size: 13px; margin-top: 15px; margin-bottom: 10px;">Déplacement hors du site Galaxy</h3>
+    //       <p>
+    //         Appelez au
+    //         <a href="tel:8193459954" style="color:#1a73e8; text-decoration: none;"><strong>819-345-9954</strong></a>
+    //       </p>
+    //       <ul style="margin-top: 10px; margin-bottom: 10px;">
+    //         <li>Avant de quitter le site de la mine ou le Relais Routier 381.</li>
+    //         <li>Au moment de quitter la route Billy Diamond à Matagami ou en quittant la Route du Nord à Chibougamau ou en arrivant dans une communauté sur le territoire Cri de la Baie-James.</li>
+    //       </ul>
 
-          <p style="margin-top: 15px;"><strong>Mentionnez à l'agent de sureté les informations suivantes :</strong></p>
-          <ul style="margin-top: 10px; margin-bottom: 15px;">
-            <li>Nom complet de tous les occupants du véhicule.</li>
-            <li>Localisation actuelle</li>
-            <li>Le numéro de voyage fournit par les responsables Rio Tinto</li>
-          </ul>
+    //       <p style="margin-top: 15px;"><strong>Mentionnez à l'agent de sureté les informations suivantes :</strong></p>
+    //       <ul style="margin-top: 10px; margin-bottom: 15px;">
+    //         <li>Nom complet de tous les occupants du véhicule.</li>
+    //         <li>Localisation actuelle</li>
+    //         <li>Le numéro de voyage fournit par les responsables Rio Tinto</li>
+    //       </ul>
 
-          <hr style="margin: 30px 0; border: none; border-top: 2px solid #ccc;" />
+    //       <hr style="margin: 30px 0; border: none; border-top: 2px solid #ccc;" />
 
-          <!-- ENGLISH VERSION -->
-          <h2 style="color: #1a73e8; margin-top: 20px; margin-bottom: 15px;">Warning for Road Travel</h2>
+    //       <!-- ENGLISH VERSION -->
+    //       <h2 style="color: #1a73e8; margin-top: 20px; margin-bottom: 15px;">Warning for Road Travel</h2>
           
-          <h3 style="color: #1a73e8; font-size: 13px; margin-top: 15px; margin-bottom: 10px;">Trips to the Galaxy Site</h3>
-          <p>
-            Call
-            <a href="tel:8193459954" style="color:#1a73e8; text-decoration: none;"><strong>819-345-9954</strong></a>
-          </p>
-          <ul style="margin-top: 10px; margin-bottom: 10px;">
-            <li>When entering the Billy Diamond Road in Matagami or the Route du Nord in Chibougamau or when leaving a community in the Cree territory of James Bay.</li>
-            <li>Arriving at Truck Stop 381 or the Galaxy Mine site.</li>
-          </ul>
+    //       <h3 style="color: #1a73e8; font-size: 13px; margin-top: 15px; margin-bottom: 10px;">Trips to the Galaxy Site</h3>
+    //       <p>
+    //         Call
+    //         <a href="tel:8193459954" style="color:#1a73e8; text-decoration: none;"><strong>819-345-9954</strong></a>
+    //       </p>
+    //       <ul style="margin-top: 10px; margin-bottom: 10px;">
+    //         <li>When entering the Billy Diamond Road in Matagami or the Route du Nord in Chibougamau or when leaving a community in the Cree territory of James Bay.</li>
+    //         <li>Arriving at Truck Stop 381 or the Galaxy Mine site.</li>
+    //       </ul>
 
-          <h3 style="color: #1a73e8; font-size: 13px; margin-top: 15px; margin-bottom: 10px;">Moving Out of the Galaxy Site</h3>
-          <p>
-            Call
-            <a href="tel:8193459954" style="color:#1a73e8; text-decoration: none;"><strong>819-345-9954</strong></a>
-          </p>
-          <ul style="margin-top: 10px; margin-bottom: 10px;">
-            <li>Before leaving the mine site or Truck Stop 381.</li>
-            <li>When leaving Billy Diamond Road in Matagami or when leaving the Route du Nord in Chibougamau or arriving in a community on James Bay Cree territory.</li>
-          </ul>
+    //       <h3 style="color: #1a73e8; font-size: 13px; margin-top: 15px; margin-bottom: 10px;">Moving Out of the Galaxy Site</h3>
+    //       <p>
+    //         Call
+    //         <a href="tel:8193459954" style="color:#1a73e8; text-decoration: none;"><strong>819-345-9954</strong></a>
+    //       </p>
+    //       <ul style="margin-top: 10px; margin-bottom: 10px;">
+    //         <li>Before leaving the mine site or Truck Stop 381.</li>
+    //         <li>When leaving Billy Diamond Road in Matagami or when leaving the Route du Nord in Chibougamau or arriving in a community on James Bay Cree territory.</li>
+    //       </ul>
 
-          <p style="margin-top: 15px;"><strong>Tell the security officer the following information:</strong></p>
-          <ul style="margin-top: 10px; margin-bottom: 15px;">
-            <li>Full names of all occupants of the vehicle.</li>
-            <li>Current location.</li>
-            <li>The trip number provided by Rio Tinto officials.</li>
-          </ul>
-        </div>
-      `;
+    //       <p style="margin-top: 15px;"><strong>Tell the security officer the following information:</strong></p>
+    //       <ul style="margin-top: 10px; margin-bottom: 15px;">
+    //         <li>Full names of all occupants of the vehicle.</li>
+    //         <li>Current location.</li>
+    //         <li>The trip number provided by Rio Tinto officials.</li>
+    //       </ul>
+    //     </div>
+    //   `;
 
-            const mailData = {
-                from: '"Galaxy Hub Construction" <notifications@constructiongalaxyhub.com>',
-                to: courriel_travailleur,
-                cc: courriel_cc.length ? courriel_cc : undefined,
-                subject: `Req #${element.id_travel} - Consigne de déplacement routier / Road Travel Instruction`,
-                html,
-            };
+    //         const mailData = {
+    //             from: '"Galaxy Hub Construction" <notifications@constructiongalaxyhub.com>',
+    //             to: courriel_travailleur,
+    //             cc: courriel_cc.length ? courriel_cc : undefined,
+    //             subject: `Req #${element.id_travel} - Consigne de déplacement routier / Road Travel Instruction`,
+    //             html,
+    //         };
 
-            console.log("[notif] Envoi mail:", {
-                to: mailData.to,
-                ccCount: courriel_cc.length,
-                id_planning: element.id_planning,
-            });
+    //         console.log("[notif] Envoi mail:", {
+    //             to: mailData.to,
+    //             ccCount: courriel_cc.length,
+    //             id_planning: element.id_planning,
+    //         });
 
-            // Envoi mail (attendu)
-            await smtpTrans.sendMail(mailData);
-            console.log("[notif] Notification envoyée");
+    //         // Envoi mail (attendu)
+    //         // await smtpTrans.sendMail(mailData);
+    //         console.log("[notif] Notification envoyée");
 
-            // ENVOI SMS 
-            if (numeroFinal) {
-                // CONTENU SMS 
-                const smsFR = `Liaison Galaxy Req #${element.id_travel}\nBonjour ${nom_complet},\nAppel obligatoire au 819-345-9954:\n1-Entrée route Billy Diamond/Nord\n2-Arrivée Relais 381 ou site\n3-Départ du site\nDonner: Noms, lieu et n° de voyage.`;
-                const smsEN = `Galaxy Link Req #${element.id_travel}\nHello ${nom_complet},\nMandatory call 819-345-9954:\n1-Entering Billy Diamond/North road\n2-Arrival at Stop 381 or site\n3-Leaving site\nProvide: Names, location & trip #.`;
+    //         // ENVOI SMS 
+    //         if (numeroFinal) {
+    //             // CONTENU SMS 
+    //             const smsFR = `Liaison Galaxy Req #${element.id_travel}\nBonjour ${nom_complet},\nAppel obligatoire au 819-345-9954:\n1-Entrée route Billy Diamond/Nord\n2-Arrivée Relais 381 ou site\n3-Départ du site\nDonner: Noms, lieu et n° de voyage.`;
+    //             const smsEN = `Galaxy Link Req #${element.id_travel}\nHello ${nom_complet},\nMandatory call 819-345-9954:\n1-Entering Billy Diamond/North road\n2-Arrival at Stop 381 or site\n3-Leaving site\nProvide: Names, location & trip #.`;
 
-                const smsContent = (data_travailleur[0].langue == 1) ? smsFR : smsEN;
-                console.log(`[notif] Tentative envoi SMS au ${numeroFinal}`);
-                await sendSMS(numeroFinal, smsContent);
+    //             const smsContent = (data_travailleur[0].langue == 1) ? smsFR : smsEN;
+    //             console.log(`[notif] Tentative envoi SMS au ${numeroFinal}`);
+    //             // await sendSMS(numeroFinal, smsContent);
                 
-            } else {
-                console.log(`[notif] SMS ignoré : pas de numéro pour id_travailleur=${element.id_travailleur}`);
-            }
+    //         } else {
+    //             console.log(`[notif] SMS ignoré : pas de numéro pour id_travailleur=${element.id_travailleur}`);
+    //         }
 
-            // INSERT DANS L'HISTORIQUE DE NOTIFICATION 
-            let query_insert_historique = `
-            insert into public.historique_notification (
-                id_travel,
-                id_travailleur,
-                email,
-                numero_tel,
-                description
-            ) values ($1, $2, $3, $4, $5)`;
-            await pool.query(query_insert_historique, [
-                element.id_travel,
-                element.id_travailleur,
-                courriel_travailleur,
-                numeroFinal,
-                `Req #${element.id_travel} - Consigne de déplacement routier / Road Travel Instruction`
-            ]);
+    //         // INSERT DANS L'HISTORIQUE DE NOTIFICATION 
+    //         let query_insert_historique = `
+    //         insert into public.historique_notification (
+    //             id_travel,
+    //             id_travailleur,
+    //             email,
+    //             numero_tel,
+    //             description
+    //         ) values ($1, $2, $3, $4, $5)`;
+    //         await pool.query(query_insert_historique, [
+    //             element.id_travel,
+    //             element.id_travailleur,
+    //             courriel_travailleur,
+    //             numeroFinal,
+    //             `Req #${element.id_travel} - Consigne de déplacement routier / Road Travel Instruction`
+    //         ]);
 
-            // --- Calcul prochaine notification ---
-            const date_debut = element.date_debut;
-            const date_fin = element.date_fin;
-            const rotation = element.rotation;      // ex: "14/14" ou "0"
-            const jour_arrive = element.jour_arrive; // 1=Lundi ... 7=Dimanche
+    //         // --- Calcul prochaine notification ---
+    //         const date_debut = element.date_debut;
+    //         const date_fin = element.date_fin;
+    //         const rotation = element.rotation;      // ex: "14/14" ou "0"
+    //         const jour_arrive = element.jour_arrive; // 1=Lundi ... 7=Dimanche
 
-            const nextDate = getNextNotification({
-                date_debut,
-                date_fin,
-                rotation,
-                jour_arrive,
-                today,
-                daysBefore: 2, // <= J-2
-            });
+    //         const nextDate = getNextNotification({
+    //             date_debut,
+    //             date_fin,
+    //             rotation,
+    //             jour_arrive,
+    //             today,
+    //             daysBefore: 2, // <= J-2
+    //         });
 
-            // Update date_notif
-            await updateNextNotifSafe(element, nextDate);
+    //         // Update date_notif
+    //         await updateNextNotifSafe(element, nextDate);
 
-        } catch (err) {
-            console.error("[notif] Erreur traitement element:", {
-                id_planning: element?.id_planning,
-                id_travailleur: element?.id_travailleur,
-                err: err?.message || err,
-            });
-        }
-    }
+    //     } catch (err) {
+    //         console.error("[notif] Erreur traitement element:", {
+    //             id_planning: element?.id_planning,
+    //             id_travailleur: element?.id_travailleur,
+    //             err: err?.message || err,
+    //         });
+    //     }
+    // }
     }
     console.log("[notif] Fin de la première boucle, passage à notification_route");
 
-        // ENVOIE NOTIF POUR VOYAGE SANS CHAMBRE 
+        // ENVOIE NOTIF POUR VOYAGES ROUTIERS (2 jours avant voyage)
     const query_route = `
-        select *,
-               date_voyage::text as date_voyage
-        from public.notification_route
-        where date_notif = $1
+        SELECT nr.*,
+            nr.date_voyage::text AS date_voyage,
+            pv.id_voyage
+        FROM public.notification_route nr
+        JOIN plan_voyagement pv ON pv.id_travel = nr.id_travel 
+        WHERE date_notif = $1
+        AND pv.date_voyage = $1::date + INTERVAL '2 days';
     `;
     const { rows: data_route } = await pool.query(query_route, [today]);
     if (data_route && data_route.length > 0) {
@@ -360,7 +363,7 @@ async function envoiNotification() {
                 const html = `
                         <div style="font-family: Arial, sans-serif; font-size: 14px; color: #333; line-height: 1.6;">
                         <p><strong>Bonjour ${nom_complet},</strong></p>
-                        <p style="margin-bottom: 20px;"> <strong>Demande n°${element.id_travel}</strong> </p>
+                        <p style="margin-bottom: 20px;"> <strong>Demande de voyage n°${element.id_voyage}</strong> </p>
                         
                         <!-- FRENCH VERSION -->
                         <h2 style="color: #1a73e8; margin-bottom: 15px;">Avertissement pour déplacements routiers</h2>
@@ -430,7 +433,7 @@ async function envoiNotification() {
                     from: '"Galaxy Hub Construction" <notifications@constructiongalaxyhub.com>',
                     to: email_to,
                     cc: courriel_cc.length ? courriel_cc : undefined,
-                    subject: `Req #${element.id_travel} - Consigne de déplacement routier / Road Travel Instruction`,
+                    subject: `Trip ID #${element.id_voyage} - Consigne de déplacement routier / Road Travel Instruction`,
                     html: html,
                 };
 
@@ -438,8 +441,8 @@ async function envoiNotification() {
                 console.log(`[notif_route] Mail envoyé à ${email_to}`);
 
                 if (tel) {
-                    const smsFR = `Liaison Galaxy Req #${element.id_travel}\nBonjour ${nom_complet},\nAppel obligatoire au 819-345-9954:\n1-Entrée route Billy Diamond/Nord\n2-Arrivée Relais 381 ou site\n3-Départ du site\nDonner: Noms, lieu et n° de voyage.`;
-                    const smsEN = `Galaxy Link Req #${element.id_travel}\nHello ${nom_complet},\nMandatory call 819-345-9954:\n1-Entering Billy Diamond/North road\n2-Arrival at Stop 381 or site\n3-Leaving site\nProvide: Names, location & trip #.`;
+                    const smsFR = `Liaison Galaxy - N° de voyage #${element.id_voyage}\nBonjour ${nom_complet},\nAppel obligatoire au 819-345-9954:\n1-Entrée route Billy Diamond/Nord\n2-Arrivée Relais 381 ou site\n3-Départ du site\nDonner: Noms, lieu et n° de voyage.`;
+                    const smsEN = `Galaxy Link - Trip ID #${element.id_voyage}\nHello ${nom_complet},\nMandatory call 819-345-9954:\n1-Entering Billy Diamond/North road\n2-Arrival at Stop 381 or site\n3-Leaving site\nProvide: Names, location & trip #.`;
                         
                     const content = (t.langue == 1) ? smsFR : smsEN;
                     await sendSMS(tel, content);
@@ -460,7 +463,7 @@ async function envoiNotification() {
                 element.id_travailleur,
                 email_to,
                 tel,
-                `Req #${element.id_travel} - Consigne de déplacement routier / Road Travel Instruction`
+                `N° de voyage #${element.id_voyage} - Consigne de déplacement routier / Road Travel Instruction`
             ]);
             } catch (err_route) {
                 console.error("[notif_route] Erreur element:", err_route.message);
