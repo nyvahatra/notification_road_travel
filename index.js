@@ -49,10 +49,10 @@ cron.schedule(
 
 // envoiNotification();
 async function envoiNotification() {
-    
+
     // today ISO date (YYYY-MM-DD)
     const today = DateTime.now().toISODate();
-    // const today = '2026-04-27';
+    // const today = '2026-04-18';
 
     const query_get_param = `
     select *
@@ -297,18 +297,19 @@ async function envoiNotification() {
     //     }
     // }
     }
-    console.log("[notif] Fin de la première boucle, passage à notification_route");
+    console.log("[notif] Passage au boucle d'envoie des consignes");
 
-        // ENVOIE NOTIF POUR VOYAGES ROUTIERS (2 jours avant voyage)
+    // ENVOIE NOTIF POUR VOYAGES ROUTIERS (2 jours avant voyage et le jour du voyage)
     const query_route = `
         SELECT nr.*,
             nr.date_voyage::text AS date_voyage,
             pv.id_voyage,
             pv.code_voyage
         FROM public.notification_route nr
-        JOIN plan_voyagement pv ON pv.id_travel = nr.id_travel 
-        WHERE date_notif = $1
-        AND pv.date_voyage = $1::date + INTERVAL '2 days';
+        JOIN plan_voyagement pv
+        ON pv.id_travel = nr.id_travel
+        AND pv.date_voyage = nr.date_voyage 
+        WHERE nr.date_notif = $1::date OR nr.date_voyage = $1::date
     `;
     const { rows: data_route } = await pool.query(query_route, [today]);
     if (data_route && data_route.length > 0) {
