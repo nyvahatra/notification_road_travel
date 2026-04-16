@@ -52,7 +52,7 @@ async function envoiNotification() {
 
     // today ISO date (YYYY-MM-DD)
     const today = DateTime.now().toISODate();
-    // const today = '2026-04-18';
+    // const today = '2026-04-17';
 
     const query_get_param = `
     select *
@@ -302,14 +302,14 @@ async function envoiNotification() {
     // ENVOIE NOTIF POUR VOYAGES ROUTIERS (2 jours avant voyage et le jour du voyage)
     const query_route = `
         SELECT nr.*,
-            nr.date_voyage::text AS date_voyage,
             pv.id_voyage,
             pv.code_voyage
         FROM public.notification_route nr
         JOIN plan_voyagement pv
         ON pv.id_travel = nr.id_travel
-        AND pv.date_voyage = nr.date_voyage 
-        WHERE nr.date_notif = $1::date OR nr.date_voyage = $1::date
+        AND pv.date_voyage = nr.date_voyage
+        WHERE nr.date_notif = $1::date
+        OR nr.date_voyage = $1::date
     `;
     const { rows: data_route } = await pool.query(query_route, [today]);
     if (data_route && data_route.length > 0) {
@@ -441,7 +441,7 @@ async function envoiNotification() {
 
                 await smtpTrans.sendMail(mailDataRoute);
                 console.log(`[notif_route] Mail envoyé à ${email_to}`);
-
+                
                 if (tel) {
                     const smsFR = `Liaison Galaxy - Demande #${element.code_voyage}\nBonjour ${nom_complet},\nAppel obligatoire au 819-345-9954:\n1-Entrée route Billy Diamond/Nord\n2-Arrivée Relais 381 ou site\n3-Départ du site\nDonner: Noms, lieu et n° de voyage.`;
                     const smsEN = `Galaxy Link - Trip ID #${element.code_voyage}\nHello ${nom_complet},\nMandatory call 819-345-9954:\n1-Entering Billy Diamond/North road\n2-Arrival at Stop 381 or site\n3-Leaving site\nProvide: Names, location & trip #.`;
